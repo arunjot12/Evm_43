@@ -5862,6 +5862,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "jsonrpsee",
  "log",
+ "mmr-rpc",
  "nix 0.26.2",
  "node-5ire-runtime",
  "node-executor",

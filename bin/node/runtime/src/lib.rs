@@ -51,7 +51,7 @@ use pallet_evm::{
 	Account as EVMAccount, EnsureAddressTruncated,GasWeightMapping, HashedAddressMapping, Runner,	
 };	
 // use crate::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch::Dispatchable;	
-use pallet_ethereum::{Call::transact, Transaction as EthereumTransaction, PostLogContent,};	
+use pallet_ethereum::{Call::transact, Transaction as EthereumTransaction,};	
 mod precompiles;	
 use precompiles::FrontierPrecompiles;	
 use pallet_grandpa::{
