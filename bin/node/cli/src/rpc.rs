@@ -28,23 +28,27 @@
 //! are part of it. Therefore all node-runtime-specific RPCs can
 //! be placed here or imported from corresponding FRAME RPC definitions.
 
-#![warn(missing_docs)]
-#![warn(unused_crate_dependencies)]
 
 //use std::sync::Arc;
 use std::{collections::BTreeMap, sync::Arc};
 
 use jsonrpsee::RpcModule;
 use node_5ire_runtime::{opaque::Block};
-
+use sc_consensus_babe::BabeWorkerHandle;
 use sp_core::H256;
-
+use sp_keystore::KeystorePtr;
+use grandpa::SharedAuthoritySet;
+use grandpa::FinalityProofProvider;
+use grandpa::GrandpaJustificationStream;
 use sc_network_sync::SyncingService;
-
+use sc_rpc::dev::Dev;
+use grandpa::SharedVoterState;
 use node_primitives::{AccountId, Balance, BlockNumber, Hash, Index};
 use sc_client_api::AuxStore;
 use sp_api::CallApiAt;
 use sc_rpc::SubscriptionTaskExecutor;
+use sc_rpc::statement::StatementApiServer;
+use sc_rpc::dev::DevApiServer;
 pub use sc_rpc_api::DenyUnsafe;
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
@@ -52,10 +56,6 @@ use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_consensus::SelectChain;
 use sp_consensus_babe::BabeApi;
-use sp_keystore::KeystorePtr;
-//use sp_keystore::SyncCryptoStorePtr;
-
-use sp_runtime::traits::Block as BlockT;
 
 
 
@@ -71,36 +71,36 @@ use fc_rpc_core::{types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool}, Et
 // Frontier
 use fc_rpc::{
 	EthBlockDataCacheTask, OverrideHandle, RuntimeApiStorageOverride, SchemaV1Override,
-	SchemaV2Override, SchemaV3Override, StorageOverride,TxPool, EthConfig
+	SchemaV2Override, SchemaV3Override, StorageOverride,TxPool
 };
 use fp_storage::EthereumStorageSchema;
 
-// /// Extra dependencies for BABE.
-// pub struct BabeDeps {
+/// Extra dependencies for BABE.
+pub struct BabeDeps {
 
-//     /// BABE protocol config.
-// 	//pub babe_config: BabeConfiguration,
-// 	/// BABE pending epoch changes.
-// 	/// pub shared_epoch_changes: SharedEpochChanges<Block, Epoch>,
-// 	/// A handle to the BABE worker for issuing requests.
-// 	pub babe_worker_handle: BabeWorkerHandle<Block>,
-// 	/// The keystore that manages the keys of the node.
-// 	pub keystore: KeystorePtr,
-// }
+    /// BABE protocol config.
+	//pub babe_config: BabeConfiguration,
+	/// BABE pending epoch changes.
+	/// pub shared_epoch_changes: SharedEpochChanges<Block, Epoch>,
+	/// A handle to the BABE worker for issuing requests.
+	pub babe_worker_handle: BabeWorkerHandle<Block>,
+	/// The keystore that manages the keys of the node.
+	pub keystore: KeystorePtr,
+}
 
-// /// Extra dependencies for GRANDPA
-// pub struct GrandpaDeps<B> {
-// 	/// Voting round info.
-// 	pub shared_voter_state: SharedVoterState,
-// 	/// Authority set info.
-// 	pub shared_authority_set: SharedAuthoritySet<Hash, BlockNumber>,
-// 	/// Receives notifications about justification events from Grandpa.
-// 	pub justification_stream: GrandpaJustificationStream<Block>,
-// 	/// Executor to drive the subscription manager in the Grandpa RPC handler.
-// 	pub subscription_executor: SubscriptionTaskExecutor,
-// 	/// Finality proof provider.
-// 	pub finality_provider: Arc<FinalityProofProvider<B, Block>>,
-// }
+/// Extra dependencies for GRANDPA
+pub struct GrandpaDeps<B> {
+	/// Voting round info.
+	pub shared_voter_state: SharedVoterState,
+	/// Authority set info.
+	pub shared_authority_set: SharedAuthoritySet<Hash, BlockNumber>,
+	/// Receives notifications about justification events from Grandpa.
+	pub justification_stream: GrandpaJustificationStream<Block>,
+	/// Executor to drive the subscription manager in the Grandpa RPC handler.
+	pub subscription_executor: SubscriptionTaskExecutor,
+	/// Finality proof provider.
+	pub finality_provider: Arc<FinalityProofProvider<B, Block>>,
+}
 
 
 /// Full client dependencies.
@@ -116,9 +116,9 @@ pub struct FullDeps<C, P, SC, B, A:ChainApi> {
 	/// Whether to deny unsafe calls
 	pub deny_unsafe: DenyUnsafe,
 	/// BABE specific dependencies.
-	pub babe: node_rpc::BabeDeps,
+	pub babe: BabeDeps,
 	/// GRANDPA specific dependencies.
-	pub grandpa: node_rpc::GrandpaDeps<B>,
+	pub grandpa: GrandpaDeps<B>,
 	/// Shared statement store reference.
 	pub statement_store: Arc<dyn sp_statement_store::StatementStore>,
     /// Graph pool instance.
@@ -263,7 +263,7 @@ where
 		fc_mapping_sync::EthereumBlockNotification<Block>,
 		>,
 	>,
-	backend: Arc<B>,
+	_backend: Arc<B>,
 	) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 	where
 	C: ProvideRuntimeApi<Block>
@@ -307,7 +307,7 @@ where
 
     use fc_rpc::{
 		Eth, EthDevSigner, EthFilter, EthFilterApiServer, EthPubSub,
-		EthPubSubApiServer, EthSigner, Net, NetApiServer, TxPoolApiServer, Web3, Web3ApiServer,
+		EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
 	};
 
 	let mut io = RpcModule::new(());
@@ -328,11 +328,11 @@ where
         forced_parent_hashes,
 	} = deps;
 
-	let node_rpc::BabeDeps { keystore, babe_worker_handle } = babe;
+	let BabeDeps { keystore, babe_worker_handle } = babe;
 	
     //let BabeDeps { keystore, babe_config} = babe;
 
-    let node_rpc::GrandpaDeps {
+    let GrandpaDeps {
 		shared_voter_state,
 		shared_authority_set,
 		justification_stream,
@@ -352,35 +352,7 @@ where
 	io.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
 	// Making synchronous calls in light client freezes the browser currently,
 	// more context: https://github.com/paritytech/substrate/pull/3480
-	// These RPCs should use an asynchronous caller instead.
-	//io.merge(Mmr::new(client.clone()).into_rpc())?;
-	//io.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-	//io.merge(
-	//	Babe::new(client.clone(), babe_worker_handle.clone(), keystore, select_chain, deny_unsafe)
-	//		.into_rpc(),
-	//)?;
-
-    // io.merge(
-	// 	Babe::new(
-	// 		client.clone(),
-    //         babe_worker_handle.clone(),
-    //         keystore,
-			
-	// 		select_chain,
-	// 		deny_unsafe,
-	// 	)
-	// 	.into_rpc(),
-	// )?;
-	// io.merge(
-	// 	Grandpa::new(
-	// 		subscription_executor,
-	// 		shared_authority_set.clone(),
-	// 		shared_voter_state,
-	// 		justification_stream,
-	// 		finality_provider,
-	// 	)
-	// 	.into_rpc(),
-	// )?;
+	
 
 	io.merge(
 		SyncState::new(chain_spec, client.clone(), shared_authority_set.clone(), babe_worker_handle.clone())?
@@ -474,6 +446,7 @@ where
 		)
 		.into_rpc(),
 	)?;
+	
 	// io.merge(Contracts::new(client.clone()).into_rpc())?;
 	io.merge(
 		Net::new(
@@ -484,8 +457,10 @@ where
 		)
 		.into_rpc(),
 	)?;
-	io.merge(Web3::new(client).into_rpc())?;
-	// io.merge(tx_pool.into_rpc())?;
-
+	io.merge(Web3::new(client.clone()).into_rpc())?;
+	io.merge(Dev::new(client.clone(), deny_unsafe).into_rpc())?;
+	let statement_store =
+		sc_rpc::statement::StatementStore::new(statement_store, deny_unsafe).into_rpc();
+	io.merge(statement_store)?;
 	Ok(io)
 }

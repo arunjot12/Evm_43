@@ -364,6 +364,26 @@ pub mod pallet {
 				pays_fee: Pays::No,
 			})
 		}
+		#[pallet::call_index(5)]
+		#[pallet::weight(0)]
+		pub fn deposit(origin: OriginFor<T>, address: H160, value: BalanceOf<T>) -> DispatchResult {
+			let destination = ensure_signed(origin.clone())?;
+			let address_account_id = T::AddressMapping::into_account_id(address);
+			// let evm_value= value.saturating_mul(10u64.pow(18u32).unique_saturated_into());
+			// let native_value= value.saturating_mul(10u64.pow(12u32).unique_saturated_into());
+			// let mint_value= evm_value.saturating_sub(native_value);
+
+			// info!("Here deposit balance {:?}",value);
+			T::Currency::transfer(
+				&destination,
+				&address_account_id,
+				value,
+				ExistenceRequirement::AllowDeath,
+				
+			)?;
+			// T::Currency::deposit_creating(&address_account_id,mint_value);
+			Ok(())
+		}
 
 		/// Issue an EVM create2 operation.
 		#[pallet::call_index(3)]
